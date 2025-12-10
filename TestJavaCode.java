@@ -1,5 +1,12 @@
 /**
  * 示例 Java 类,包含多个带有公式注释的方法
+ * 
+ * 本测试类包含以下测试场景:
+ * 1. 简单公式映射 (calculateEnergy, getSimpleInterest 等)
+ * 2. 带混淆代码的复杂方法 (calculateDistance, calculateForce 等)
+ * 3. 公式参数缺失的情况 (calculateGravitationalForce - G常数硬编码)
+ * 4. 简化实现导致参数缺失 (calculateWork - 角度θ不存在)
+ * 5. 参数名称与公式符号不同 (calculateSpringEnergy - springConstant vs k)
  */
 public class TestJavaCode {
 

@@ -214,17 +214,28 @@ if __name__ == "__main__":
     # 支持命令行参数指定 Java 文件
     if len(sys.argv) > 1:
         java_file = sys.argv[1]
+        
+        # 如果提供的是相对路径,转换为绝对路径
+        if not os.path.isabs(java_file):
+            java_file = os.path.abspath(java_file)
     else:
-        # 使用当前目录下的默认文件
+        # 使用当前脚本目录下的默认文件
         script_dir = os.path.dirname(os.path.abspath(__file__))
         java_file = os.path.join(script_dir, default_java_file)
+    
+    # 标准化路径(统一使用正斜杠)
+    java_file = os.path.normpath(java_file)
     
     # 检查文件是否存在
     if not os.path.exists(java_file):
         print(f"[!] 错误: 找不到 Java 文件: {java_file}")
-        print(f"[*] 使用方法: python Ali.py [java_file_path]")
-        print(f"[*] 示例: python Ali.py TestJavaCode.java")
+        print(f"[*] 使用方法:")
+        print(f"    python Ali.py                           # 分析默认文件 TestJavaCode.java")
+        print(f"    python Ali.py <相对路径>                # 例: python Ali.py ../MyCode.java")
+        print(f"    python Ali.py <绝对路径>                # 例: python Ali.py D:/Projects/Code.java")
         sys.exit(1)
+    
+    print(f"[*] 文件路径: {java_file}")
     
     # 创建映射器并处理文件
     mapper = JavaFormulaMapper()
@@ -232,7 +243,27 @@ if __name__ == "__main__":
     
     # 保存结果到 JSON 文件
     if results:
-        output_file = "mapping_results.json"
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=4, ensure_ascii=False)
-        print(f"[+] 分析结果已保存到: {output_file}")
+        # 将结果保存在与输入文件相同的目录
+        output_dir = os.path.dirname(java_file)
+        output_file = os.path.join(output_dir, "mapping_results.json")
+        
+        try:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=4, ensure_ascii=False)
+            print(f"\n{'='*60}")
+            print(f"[+] 分析完成!")
+            print(f"[+] 结果已保存到: {output_file}")
+            
+            # 统计信息
+            total_methods = len(results)
+            methods_with_null = sum(1 for r in results 
+                                   if isinstance(r.get('mapping'), dict) 
+                                   and any(v is None for v in r['mapping'].values()))
+            
+            print(f"[+] 统计: 共分析 {total_methods} 个方法")
+            if methods_with_null > 0:
+                print(f"[!] 其中 {methods_with_null} 个方法存在未映射的公式参数")
+            print(f"{'='*60}")
+        except Exception as e:
+            print(f"[!] 保存结果失败: {e}")
+            sys.exit(1)
