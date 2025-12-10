@@ -1,0 +1,142 @@
+[
+    {
+        "method_name": "calculateEnergy",
+        "mapping": {
+            "E": "energy",
+            "m": "mass",
+            "c": "speedOfLight"
+        }
+    },
+    {
+        "method_name": "getSimpleInterest",
+        "mapping": {
+            "I": "interest",
+            "P": "principalAmount",
+            "r": "annualRate",
+            "t": "years"
+        }
+    },
+    {
+        "method_name": "calculateCircleArea",
+        "mapping": {
+            "A": "area",
+            "π": "pi",
+            "r": "radius"
+        }
+    },
+    {
+        "method_name": "calculateKineticEnergy",
+        "mapping": {
+            "KE": "kineticEnergy",
+            "m": "mass",
+            "v": "velocity"
+        }
+    },
+    {
+        "method_name": "calculateCompoundInterest",
+        "mapping": {
+            "A": "finalAmount",
+            "P": "principal",
+            "r": "rate",
+            "n": "compoundsPerYear",
+            "t": "years"
+        }
+    },
+    {
+        "method_name": "calculateDistance",
+        "mapping": {
+            "d": "distance",
+            "v0": "initialVelocity",
+            "t": "time",
+            "a": "acceleration"
+        }
+    },
+    {
+        "method_name": "calculateFinalVelocity",
+        "mapping": {
+            "v": "velocity",
+            "v0": "initialVelocity",
+            "a": "acceleration",
+            "t": "time"
+        }
+    },
+    {
+        "method_name": "calculateForce",
+        "mapping": {
+            "F": "force",
+            "m": "mass",
+            "a": "acceleration"
+        }
+    },
+    {
+        "method_name": "calculateFluidPressure",
+        "mapping": {
+            "P": "pressure",
+            "ρ": "density",
+            "g": "gravity",
+            "h": "height"
+        }
+    },
+    {
+        "method_name": "calculatePendulumPeriod",
+        "mapping": {
+            "T": "period",
+            "π": "pi",
+            "L": "length",
+            "g": "gravity"
+        }
+    },
+    {
+        "method_name": "calculateElectricalPower",
+        "mapping": {
+            "P": "power",
+            "V": "voltage",
+            "I": "current"
+        }
+    },
+    {
+        "method_name": "calculateTriangleArea",
+        "mapping": {
+            "A": "area",
+            "s": "semiPerimeter",
+            "a": "sideA",
+            "b": "sideB",
+            "c": "sideC"
+        }
+    },
+    {
+        "method_name": "calculateResistance",
+        "mapping": {
+            "R": "resistance",
+            "V": "voltage",
+            "I": "current"
+        }
+    },
+    {
+        "method_name": "calculateGravitationalForce",
+        "mapping": {
+            "F": "force",
+            "m1": "mass1",
+            "m2": "mass2",
+            "r": "distance",
+            "G": null
+        }
+    },
+    {
+        "method_name": "calculateWork",
+        "mapping": {
+            "W": "work",
+            "F": "forceValue",
+            "d": "displacementValue",
+            "θ": null
+        }
+    },
+    {
+        "method_name": "calculateSpringEnergy",
+        "mapping": {
+            "PE": "potentialEnergy",
+            "k": "springConstant",
+            "x": "displacement"
+        }
+    }
+]
