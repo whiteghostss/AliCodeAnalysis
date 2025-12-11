@@ -1,20 +1,63 @@
 import os
 import json
+import re
 import javalang
 import dashscope
 from http import HTTPStatus
 
-# 配置 API KEY
+
 dashscope.api_key = "sk-b4d710d02b0f49b1908ff05a08263918"
 
 class JavaFormulaMapper:
     def __init__(self):
-        # 使用通义千问 Max 模型，逻辑推理能力最强
+        # 使用 Qwen-Max 模型，逻辑推理能力最强
         self.model = dashscope.Generation.Models.qwen_max
+
+    def _is_numeric_type(self, type_name):
+        """
+        判断是否为数值类型，过滤掉无关的 String 或 boolean
+        """
+        if not type_name:
+            return False
+        numeric_types = {
+            'int', 'long', 'double', 'float', 'short', 'byte',
+            'Integer', 'Long', 'Double', 'Float', 'Short', 'Byte',
+            'BigDecimal', 'BigInteger', 'Number'
+        }
+        return type_name in numeric_types
+
+    def get_method_code(self, file_content, start_line):
+        """
+        基于括号匹配提取完整的方法源代码
+        """
+        lines = file_content.split('\n')
+        current_line_idx = start_line - 1
+        
+        brace_balance = 0
+        found_start = False
+        method_lines = []
+        max_lines = len(lines)
+        
+        for i in range(current_line_idx, max_lines):
+            line = lines[i]
+            method_lines.append(line)
+            
+            open_braces = line.count('{')
+            close_braces = line.count('}')
+            
+            if open_braces > 0:
+                found_start = True
+            
+            brace_balance += (open_braces - close_braces)
+            
+            if found_start and brace_balance == 0:
+                break
+                
+        return "\n".join(method_lines)
 
     def parse_java_file(self, java_file_path):
         """
-        解析整个 Java 文件，提取所有方法的信息
+        解析 Java 文件，提取 AST 信息和源码
         """
         try:
             with open(java_file_path, 'r', encoding='utf-8') as f:
@@ -29,105 +72,88 @@ class JavaFormulaMapper:
 
         methods_info = []
 
-        # 遍历 AST 寻找所有方法定义
         for _, node in tree.filter(javalang.tree.MethodDeclaration):
             method_info = {}
-            
-            # 1. 提取方法名
             method_info['method_name'] = node.name
+            method_info['comment'] = node.documentation if node.documentation else "No comment"
             
-            # 2. 提取注释 (Javadoc)
-            javadoc = node.documentation
-            method_info['comment'] = javadoc if javadoc else "No comment found"
-            
-            # 3. 提取变量 (参数 + 局部变量)
             variables = []
             
-            # 3.1 提取参数
+            # 1. 提取参数
             for param in node.parameters:
-                # 简单判断是否为数值类型 (int, double, float, long, or boxed types)
                 if self._is_numeric_type(param.type.name):
-                    variables.append({
-                        "name": param.name,
-                        "type": param.type.name,
-                        "source": "parameter"
-                    })
+                    variables.append(param.name)
             
-            # 3.2 提取方法体内的局部变量
+            # 2. 提取局部变量 (递归查找)
             if node.body:
                 for path, child in node.filter(javalang.tree.LocalVariableDeclaration):
                     if self._is_numeric_type(child.type.name):
                         for declarator in child.declarators:
-                            variables.append({
-                                "name": declarator.name,
-                                "type": child.type.name,
-                                "source": "local_variable"
-                            })
+                            variables.append(declarator.name)
             
             method_info['variables'] = variables
             
-            # 4. 提取方法的源代码（近似）
-            # 注意：javalang 不保留完整的源代码位置，这里我们简化处理
-            method_info['code'] = f"Method: {node.name}"
+            # 3. 提取源码
+            if node.position:
+                method_info['code'] = self.get_method_code(java_code, node.position.line)
+            else:
+                method_info['code'] = "// Extraction failed"
             
             methods_info.append(method_info)
 
         if not methods_info:
-            return None, "No methods found in Java file"
+            return None, "No methods found"
         
         return methods_info, None
 
-    def _is_numeric_type(self, type_name):
-        """判断是否为数值类型"""
-        numeric_types = [
-            'int', 'long', 'double', 'float', 'short', 
-            'Integer', 'Long', 'Double', 'Float', 'BigDecimal'
-        ]
-        return type_name in numeric_types
-
     def get_semantic_mapping(self, method_info):
         """
-        利用通义千问大模型进行语义映射
+        核心方法：构造 Prompt 并调用 LLM，使用正则提取 JSON
         """
         comment = method_info['comment']
-        variables = [v['name'] for v in method_info['variables']]
+        variables = method_info['variables']
         code = method_info['code']
 
-        # 构建 Prompt
+        # === Prompt 经过精心设计以满足你的所有需求 ===
         prompt = f"""
-        你是一个代码分析专家。你的任务是将Java代码中的变量映射到注释中公式的参数。
-        
-        ### 输入信息
-        1. **Java代码**:
+        你是一个严谨的代码分析专家。任务是分析Java代码，将代码中的实现映射回注释中的数学公式参数。
+
+        ### 输入数据
+        1. **代码 (Source)**:
         ```java
         {code}
         ```
-        
-        2. **代码对应的注释(包含公式)**:
+        2. **注释与公式 (Formula)**:
         {comment}
-        
-        3. **从AST提取的数值型变量候选列表**:
+        3. **数值型变量列表**:
         {json.dumps(variables)}
-        
-        ### 任务要求
-        请分析代码逻辑，找出公式中的符号（例如 'a', 'b', 'x' 等）对应代码中的哪个变量。
-        注意：
-        1. 这种对应是语义上的。例如公式是 F = m*a，代码可能是 `double force = mass * accel;`，则 F->force, m->mass, a->accel。
-        2. 忽略循环变量或临时计数器，只关注公式核心参数。
-        3. 如果公式中的常数在代码中也是硬编码的（如 π=3.14159），需要映射到对应的常量变量。
-        4. **特别重要**: 如果公式中某个参数在代码中完全没有对应的变量（既不是参数也不是局部变量），请将其值设为 null。
-           例如: 公式是 F = m*a*g，但代码中只有 mass 和 accel，没有 g，则返回 {{"F": "force", "m": "mass", "a": "accel", "g": null}}
-        
+
+        ### 严格映射规则 (优先级从上到下)
+        1. **范围限制**: 
+           - **Output Key 只能是公式中出现的符号**。
+           - 绝对不要输出公式中不存在的 Key（严禁编造 "constant_k", "temp" 等）。
+           - 忽略中间计算变量，除非它们直接代表公式参数。
+
+        2. **常数与变量的优先级 (重要)**:
+           - **情况A (优先)**: 如果公式中的常数在代码中有对应的变量定义（例如 `double pi = 3.14;`），Value 必须是**变量名**（"pi"）。
+           - **情况B (次要)**: 只有当代码中完全没有定义该变量，而是直接在计算式里写了数字（例如 `return mass * 9.8;`），Value 才是**数字**（9.8）。
+
+        3. **忽略表达式**: 
+           - 如果代码是 `annualRate / 100`，Value 必须是源变量名 `annualRate`，不能是表达式。
+
+        4. **Null**: 
+           - 如果公式里的参数在代码里既没变量也没硬编码数值，Value 设为 null。
+
         ### 输出格式
-        请直接返回一个JSON对象，Key是公式中的参数符号，Value是代码中的变量名（字符串）或 null（如果无对应变量）。
-        不要包含Markdown格式（如 ```json）。
+        - 只输出纯 JSON 字符串。
+        - 不要输出 Markdown 标记。
+        - 不要输出解释文字。
         
-        示例输出1: {{"E": "energy", "m": "mass", "c": "speedOfLight"}}
-        示例输出2: {{"F": "force", "m": "mass", "a": "acceleration", "g": null}}
+        示例目标格式: {{"F": "force", "m": "mass", "G": 6.674e-11}}
         """
 
         messages = [
-            {'role': 'system', 'content': '你是一个精通Java代码分析和数学公式的助手。'},
+            {'role': 'system', 'content': '你是一个只输出JSON的助手。严格遵守Key的范围限制。'},
             {'role': 'user', 'content': prompt}
         ]
 
@@ -139,131 +165,70 @@ class JavaFormulaMapper:
             )
 
             if response.status_code == HTTPStatus.OK:
-                content = response.output.choices[0].message.content
-                # 清洗一下返回结果，防止包含 markdown 标记
-                content = content.replace("```json", "").replace("```", "").strip()
-                try:
-                    return json.loads(content)
-                except json.JSONDecodeError:
-                    return {"error": "LLM returned invalid JSON", "raw_output": content}
+                content = response.output.choices[0].message.content.strip()
+                
+                # 使用正则表达式提取 JSON，防止 LLM 说废话
+                match = re.search(r'\{.*\}', content, re.DOTALL)
+                
+                if match:
+                    json_str = match.group()
+                    try:
+                        return json.loads(json_str)
+                    except json.JSONDecodeError:
+                        return {"error": "JSON Parse Error", "extracted": json_str}
+                else:
+                    return {"error": "No JSON found in output", "raw": content}
             else:
-                return {"error": f"API Error: {response.code} - {response.message}"}
+                return {"error": f"API Error: {response.code}"}
 
         except Exception as e:
             return {"error": str(e)}
 
     def process(self, java_file_path):
-        """
-        处理整个 Java 文件，分析所有方法
-        """
-        print(f"[*] 开始分析 Java 文件: {java_file_path}")
-        print(f"[-] 正在解析代码结构...")
-        
+        print(f"[*] 正在分析文件: {java_file_path}")
         methods_info, err = self.parse_java_file(java_file_path)
         
         if err:
-            print(f"[!] 解析失败: {err}")
+            print(f"[!] 解析错误: {err}")
             return None
 
-        print(f"[+] 成功提取到 {len(methods_info)} 个方法\n")
+        results = []
+        total = len(methods_info)
         
-        all_results = []
-        
-        for idx, method_info in enumerate(methods_info, 1):
-            print(f"{'='*60}")
-            print(f"[{idx}/{len(methods_info)}] 分析方法: {method_info['method_name']}")
-            print(f"{'='*60}")
+        for idx, info in enumerate(methods_info, 1):
+            print(f"[{idx}/{total}] 分析方法: {info['method_name']}")
             
-            # 显示注释（截断显示）
-            comment_preview = method_info['comment'].strip()[:100]
-            print(f"[-] 注释: {comment_preview}{'...' if len(method_info['comment']) > 100 else ''}")
+            mapping = self.get_semantic_mapping(info)
             
-            # 显示变量
-            var_names = [v['name'] for v in method_info['variables']]
-            print(f"[-] 提取到变量: {var_names}")
+            # 在控制台输出时使用 indent=4，满足"输出一对后换行"的视觉要求
+            formatted_json = json.dumps(mapping, indent=4, ensure_ascii=False)
+            print(f"    映射结果:\n{formatted_json}\n")
             
-            # 调用 LLM 进行语义推理
-            print(f"[-] 正在调用通义千问进行语义推理...")
-            mapping = self.get_semantic_mapping(method_info)
-            
-            print(f"[+] 映射结果:")
-            print(json.dumps(mapping, indent=4, ensure_ascii=False))
-            
-            # 检查并标注空映射
-            if isinstance(mapping, dict) and not mapping.get('error'):
-                null_params = [key for key, value in mapping.items() if value is None]
-                if null_params:
-                    print(f"[!] 注意: 以下公式参数在代码中没有找到对应变量: {null_params}")
-            print()
-            
-            all_results.append({
-                'method_name': method_info['method_name'],
-                'mapping': mapping
+            results.append({
+                "method_name": info['method_name'],
+                "mapping": mapping
             })
         
-        return all_results
-
-# ================= 主程序 =================
+        return results
 
 if __name__ == "__main__":
     import sys
     
-    # 默认的测试文件路径
-    default_java_file = "TestJavaCode.java"
-    
-    # 支持命令行参数指定 Java 文件
+    # 默认文件名
+    target_file = "TestJavaCode.java"
     if len(sys.argv) > 1:
-        java_file = sys.argv[1]
+        target_file = sys.argv[1]
         
-        # 如果提供的是相对路径,转换为绝对路径
-        if not os.path.isabs(java_file):
-            java_file = os.path.abspath(java_file)
+    if os.path.exists(target_file):
+        mapper = JavaFormulaMapper()
+        final_results = mapper.process(target_file)
+        
+        output_filename = "mapping_results.json"
+        
+        
+        with open(output_filename, "w", encoding='utf-8') as f:
+            json.dump(final_results, f, indent=4, ensure_ascii=False)
+            
+        print(f"[+] 分析完成！结果已保存至: {output_filename}")
     else:
-        # 使用当前脚本目录下的默认文件
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        java_file = os.path.join(script_dir, default_java_file)
-    
-    # 标准化路径(统一使用正斜杠)
-    java_file = os.path.normpath(java_file)
-    
-    # 检查文件是否存在
-    if not os.path.exists(java_file):
-        print(f"[!] 错误: 找不到 Java 文件: {java_file}")
-        print(f"[*] 使用方法:")
-        print(f"    python Ali.py                           # 分析默认文件 TestJavaCode.java")
-        print(f"    python Ali.py <相对路径>                # 例: python Ali.py ../MyCode.java")
-        print(f"    python Ali.py <绝对路径>                # 例: python Ali.py D:/Projects/Code.java")
-        sys.exit(1)
-    
-    print(f"[*] 文件路径: {java_file}")
-    
-    # 创建映射器并处理文件
-    mapper = JavaFormulaMapper()
-    results = mapper.process(java_file)
-    
-    # 保存结果到 JSON 文件
-    if results:
-        # 将结果保存在与输入文件相同的目录
-        output_dir = os.path.dirname(java_file)
-        output_file = os.path.join(output_dir, "mapping_results.json")
-        
-        try:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(results, f, indent=4, ensure_ascii=False)
-            print(f"\n{'='*60}")
-            print(f"[+] 分析完成!")
-            print(f"[+] 结果已保存到: {output_file}")
-            
-            # 统计信息
-            total_methods = len(results)
-            methods_with_null = sum(1 for r in results 
-                                   if isinstance(r.get('mapping'), dict) 
-                                   and any(v is None for v in r['mapping'].values()))
-            
-            print(f"[+] 统计: 共分析 {total_methods} 个方法")
-            if methods_with_null > 0:
-                print(f"[!] 其中 {methods_with_null} 个方法存在未映射的公式参数")
-            print(f"{'='*60}")
-        except Exception as e:
-            print(f"[!] 保存结果失败: {e}")
-            sys.exit(1)
+        print(f"[!] 找不到文件: {target_file}")
