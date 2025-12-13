@@ -1,116 +1,167 @@
-# Java 公式映射分析工具
 
-这是一个利用 AI 大模型(通义千问)自动分析 Java 代码中公式注释与变量映射关系的工具。
+# Java Formula Semantic Mapper (Java 公式语义映射服务)
 
-## 功能特点
+这是一个基于 **Flask** + **AST (javalang)** + **LLM (Qwen-Max)** 的微服务。
+它的主要功能是分析 Java 源代码，提取方法上的数学公式注释（Javadoc），并将公式中的参数精确映射到代码内部的变量、函数调用或常量表达式。
 
-- 🔍 自动解析 Java 代码结构(使用 javalang)
-- 📝 提取方法注释中的数学公式
-- 🧠 利用通义千问 AI 进行语义推理
-- 🎯 自动映射公式符号到代码变量
-- 📊 生成 JSON 格式的分析报告
+> **核心特性更新 (v2.0)**：
+> *   ✅ 支持**嵌套函数调用**提取（如 `b.sqr(c)`）。
+> *   ✅ 支持**对象方法**提取（如 `particle.getEnergy()`）。
+> *   ✅ 修复了公式结果（左值）错误映射到输入参数的问题。
+> *   ✅ 引入严格的优先级逻辑：变量 > 表达式 > 常量 > Null。
 
-## 安装依赖
+---
 
-```bash
-# 激活虚拟环境(如果有)
-source .venv/Scripts/activate  # Windows Git Bash
-# 或
-.venv\Scripts\activate  # Windows CMD
+## 🛠 环境准备
 
-# 安装依赖包
-pip install javalang dashscope
-```
-
-## 使用方法
-
-### 1. 分析默认测试文件
+### 1. 依赖安装
+请确保 Python 版本 >= 3.8。在项目根目录下创建 `requirements.txt` 并运行安装：
 
 ```bash
-python Ali.py
+# requirements.txt 内容:
+flask
+javalang
+dashscope
 ```
-
-这将分析项目目录下的 `TestJavaCode.java` 文件。
-
-### 2. 分析指定的 Java 文件
 
 ```bash
-python Ali.py path/to/your/JavaFile.java
+pip install -r requirements.txt
 ```
 
-### 3. 查看分析结果
+### 2. 配置 API Key (重要)
+为了安全起见，**不要**将 Key 硬编码在代码中。请设置环境变量：
 
-分析完成后,结果会:
+**Linux / macOS:**
+```bash
+export DASHSCOPE_API_KEY="sk-你的阿里云百炼Key"
+```
 
-- 在控制台打印显示
-- 保存到 `mapping_results.json` 文件
+**Windows (PowerShell):**
+```powershell
+$env:DASHSCOPE_API_KEY="sk-你的阿里云百炼Key"
+```
 
-## 示例
+### 3. 启动服务
+```bash
+python app.py
+```
+服务默认运行在 `http://0.0.0.0:5000`。
 
-### 输入 (TestJavaCode.java)
+---
 
+## 🚀 接口文档
+
+### 1. 代码分析接口
+**端点 (Endpoint)**: `/analyze`
+**方法 (Method)**: `POST`
+**描述**: 上传 Java 代码，返回每个方法的公式参数映射结果。
+
+#### 调用方式 A: 直接发送代码文本 (JSON)
+适用于前端编辑器或文本流。
+*   **Content-Type**: `application/json`
+*   **Body**:
+    ```json
+    {
+        "code": "public class Test { ... }"
+    }
+    ```
+
+#### 调用方式 B: 上传文件 (Multipart)
+适用于批量处理或文件上传组件。
+*   **Content-Type**: `multipart/form-data`
+*   **Body**:
+    *   `file`: (Java源文件)
+
+---
+
+### 2. 响应示例 (Response)
+
+假设输入的 Java 代码如下：
 ```java
 /**
- * Calculate Energy based on relativity theory.
- * Formula: E = m * c^2
- * where E is energy, m is mass, c is speed of light
+ * Formula: R = base + term
  */
-public double calculateEnergy(double mass) {
-    double speedOfLight = 299792458.0;
-    double energy = mass * speedOfLight * speedOfLight;
-    return energy;
+public double calculate(double base, double freq) {
+    return mathService.sum(base, noiseReducer.calc(freq));
 }
 ```
 
-### 输出 (mapping_results.json)
-
+**响应结果 (JSON)**:
 ```json
 {
-  "method_name": "calculateEnergy",
-  "mapping": {
-    "E": "energy",
-    "m": "mass",
-    "c": "speedOfLight"
-  }
+    "success": true,
+    "data": [
+        {
+            "method_name": "calculate",
+            "mapping": {
+                "R": "mathService.sum(base, noiseReducer.calc(freq))", // 结果映射
+                "base": "base",                                        // 变量直接映射
+                "term": "noiseReducer.calc(freq)"                      // 嵌套调用映射
+            }
+        }
+    ]
 }
 ```
 
-## 测试文件说明
+---
 
-`TestJavaCode.java` 包含了多个带公式注释的方法示例:
+## 🧠 映射逻辑详解 (对接必读)
 
-1. **calculateEnergy** - 相对论能量公式 E = m \* c²
-2. **getSimpleInterest** - 简单利息公式 I = P _ r _ t
-3. **calculateCircleArea** - 圆面积公式 A = π \* r²
-4. **calculateKineticEnergy** - 动能公式 KE = 0.5 _ m _ v²
-5. **calculateCompoundInterest** - 复利公式 A = P * (1 + r/n)^(n*t)
+为了解决复杂代码场景下的映射准确性，本服务采用了以下优先级规则：
 
-您可以直接在 `TestJavaCode.java` 中添加新的方法进行测试!
+1.  **优先级 1 (最高)：语义变量**
+    *   如果公式参数能找到同名或语义高度相似的**局部变量/参数**，直接输出变量名。
+    *   *示例*: `m` -> `mass`。
 
-## 项目结构
+2.  **优先级 2：函数调用与表达式**
+    *   如果参数没有对应的中间变量，而是直接通过**函数嵌套**计算的，输出完整的调用语句。
+    *   *示例*: 公式中的 `term` 对应代码中的 `b.sqr(c)`。
 
+3.  **优先级 3：硬编码常量**
+    *   如果代码中直接写死了数值且无变量定义，输出该数值。
+    *   *示例*: `G` -> `9.8`。
+
+4.  **优先级 4：Null**
+    *   如果找不到任何合理的对应关系，输出 `null`。
+    *   **注意**: 接口不会为了填满字段而强行关联不相关的变量。
+
+---
+
+## 🧪 测试用例 (Test Cases)
+
+你可以使用以下代码测试接口的健壮性：
+
+```java
+public class ComplexTest {
+    /**
+     * Formula: Dist = x + D
+     */
+    public double complexDistance(double x, double y, double z) {
+        // 测试复杂表达式提取
+        return x + Math.sqrt(Math.pow(y, 2) + Math.pow(z, 2));
+    }
+}
 ```
-AliCodeAnalysis/
-├── Ali.py                    # 主程序
-├── TestJavaCode.java         # 测试用 Java 文件
-├── mapping_results.json      # 分析结果输出(自动生成)
-├── README.md                 # 说明文档
-└── .venv/                    # Python 虚拟环境
-```
+**预期输出**:
+*   `x`: "x"
+*   `D`: "Math.sqrt(Math.pow(y, 2) + Math.pow(z, 2))"
 
-## 注意事项
+---
 
-1. 需要配置有效的通义千问 API Key (在 `Ali.py` 中设置)
-2. Java 代码必须符合语法规范才能被正确解析
-3. 建议在方法注释中明确写出公式和参数说明
-4. 支持的数值类型: int, long, double, float, short, Integer, Long, Double, Float, BigDecimal
+## ❓ 常见问题 (FAQ)
 
-## 扩展使用
+**Q1: 为什么我的代码分析失败了？**
+*   检查 Java 代码是否有**语法错误**。服务底层依赖 `javalang` 解析 AST，如果代码连编译都过不了（比如少了分号），解析会直接报错。
+*   确保注释格式包含公式，且大模型能理解该公式。
 
-如果您想分析自己的 Java 项目:
+**Q2: 为什么有些参数返回 null？**
+*   这说明模型在代码中没找到对应的实现。请检查代码逻辑是否完整，或者公式参数命名是否过于晦涩。
 
-1. 将您的 Java 文件放到项目目录
-2. 运行: `python Ali.py YourFile.java`
-3. 查看 `mapping_results.json` 获取映射结果
+**Q3: 接口响应速度慢？**
+*   因为后端调用了大模型（Qwen-Max）进行深度语义分析，通常耗时在 2-5 秒之间，请前端做好 Loading 状态处理。
 
-Happy Coding! 🚀
+---
+
+## 📞 联系开发者
+*   后端维护: [你的名字/ID]
+*   对接状态: **Ready**
